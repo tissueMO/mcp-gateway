@@ -1,0 +1,22 @@
+version = 0.1
+
+[default]
+[default.global.parameters]
+stack_name = "mcp-gateway"
+
+[default.build.parameters]
+cached = true
+parallel = true
+
+[default.validate.parameters]
+lint = true
+
+[default.deploy.parameters]
+capabilities = "CAPABILITY_IAM"
+confirm_changeset = false
+region = "ap-northeast-1"
+stack_name = "mcp-gateway"
+image_repositories = []
+
+[default.package.parameters]
+image_repositories = []

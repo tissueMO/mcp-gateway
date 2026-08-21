@@ -1,0 +1,202 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: MCP Gateway on AWS for Gemini Spark
+
+Parameters:
+  UserPoolId:
+    Type: String
+    Description: Existing Cognito User Pool ID (e.g. ap-northeast-1_xxxxxxxxx)
+  UserPoolDomain:
+    Type: String
+    Description: Existing Cognito User Pool Domain (e.g. myprivate-auth-123456789012.auth.ap-northeast-1.amazoncognito.com)
+  TargetsParameterName:
+    Type: String
+    Default: /mcp-gateway/targets
+    Description: SSM Parameter Store name containing target destinations
+  ClientCallbackUrl:
+    Type: String
+    Description: OAuth 2.0 Callback URL for the Cognito App Client (e.g. Gemini Spark Redirect URI)
+  DomainName:
+    Type: String
+    Description: Custom domain name for the MCP Gateway (e.g. mcp.example.com)
+  HostedZoneId:
+    Type: String
+    Description: Route 53 Hosted Zone ID for the domain
+  CertificateArn:
+    Type: String
+    Description: ACM Certificate ARN for the custom domain in ap-northeast-1
+
+Globals:
+  Function:
+    Timeout: 30
+    MemorySize: 512
+    Runtime: nodejs24.x
+    Architectures:
+      - arm64
+
+Resources:
+  # =================================================================
+  # Cognito OAuth 2.0 リソースサーバー & クライアント (既存 User Pool に紐付け)
+  # =================================================================
+  CognitoUserPoolResourceServer:
+    Type: AWS::Cognito::UserPoolResourceServer
+    Properties:
+      UserPoolId: !Ref UserPoolId
+      Identifier: !Sub 'https://${DomainName}'
+      Name: MCP Gateway Resource Server
+      Scopes:
+        - ScopeName: 'mcp.access'
+          ScopeDescription: 'Access MCP Gateway'
+
+  CognitoUserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    DependsOn: CognitoUserPoolResourceServer
+    Properties:
+      ClientName: gemini-spark
+      UserPoolId: !Ref UserPoolId
+      GenerateSecret: true
+      AllowedOAuthFlowsUserPoolClient: true
+      AllowedOAuthFlows:
+        - code
+      AllowedOAuthScopes:
+        - openid
+        - email
+        - profile
+        - !Sub 'https://${DomainName}/mcp.access'
+      CallbackURLs:
+        - !Ref ClientCallbackUrl
+      SupportedIdentityProviders:
+        - COGNITO
+
+  # =================================================================
+  # API Gateway HTTP API ("MCP Gateway")
+  # =================================================================
+  HttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      Name: "MCP Gateway"
+      CorsConfiguration:
+        AllowMethods:
+          - GET
+          - POST
+          - OPTIONS
+        AllowHeaders:
+          - authorization
+          - content-type
+          - mcp-session-id
+        AllowOrigins:
+          - '*'
+      Domain:
+        DomainName: !Ref DomainName
+        CertificateArn: !Ref CertificateArn
+        Route53:
+          HostedZoneId: !Ref HostedZoneId
+        EndpointConfiguration: REGIONAL
+      Auth:
+        DefaultAuthorizer: CognitoAuthorizer
+        Authorizers:
+          CognitoAuthorizer:
+            IdentitySource: '$request.header.Authorization'
+            JwtConfiguration:
+              issuer: !Sub 'https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPoolId}'
+              audience:
+                - !Ref CognitoUserPoolClient
+
+  # =================================================================
+  # Lambda 関数 (MCP Gateway)
+  # =================================================================
+  McpGatewayFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ./
+      Handler: index.handler
+      Environment:
+        Variables:
+          COGNITO_USER_POOL_ID: !Ref UserPoolId
+          COGNITO_DOMAIN: !Ref UserPoolDomain
+          CUSTOM_DOMAIN: !Ref DomainName
+          TARGETS_PARAMETER_NAME: !Ref TargetsParameterName
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - ssm:GetParameter
+                - ssm:GetParameters
+              Resource: !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter${TargetsParameterName}*'
+      Events:
+        # MCP 認証保護エンドポイント (DefaultAuthorizerが適用される)
+        McpRoute:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /mcp
+            Method: ANY
+        # CORS プリフライト用 (Public)
+        McpOptionsRoute:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /mcp
+            Method: OPTIONS
+            Auth:
+              Authorizer: NONE
+        # OAuth Discovery エンドポイント (Public)
+        DiscoveryRoute:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /.well-known/{proxy+}
+            Method: GET
+            Auth:
+              Authorizer: NONE
+        # アイコン・公開アセット (Public)
+        IconRoute:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /icon.png
+            Method: GET
+            Auth:
+              Authorizer: NONE
+        FaviconRoute:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /favicon.ico
+            Method: GET
+            Auth:
+              Authorizer: NONE
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: "node24"
+        Sourcemap: false
+        EntryPoints:
+          - src/index.ts
+        Format: esm
+        OutExtension:
+          - .js=.mjs
+        Banner:
+          - js=import { createRequire } from 'module'; const require = createRequire(import.meta.url);
+
+Outputs:
+  CustomDomainUrl:
+    Description: Custom Domain URL for MCP Gateway
+    Value: !Sub 'https://${DomainName}/mcp'
+
+  OAuthTokenEndpoint:
+    Description: OAuth 2.0 Token Endpoint
+    Value: !Sub 'https://${UserPoolDomain}/oauth2/token'
+
+  UserPoolId:
+    Description: Cognito User Pool ID
+    Value: !Ref UserPoolId
+
+  ClientId:
+    Description: Cognito App Client ID
+    Value: !Ref CognitoUserPoolClient
+
+  DiscoveryUrl:
+    Description: OAuth Authorization Server Metadata URL
+    Value: !Sub 'https://${DomainName}/.well-known/oauth-authorization-server'
