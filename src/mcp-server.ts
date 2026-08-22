@@ -23,7 +23,8 @@ export function createMcpServer(targetCaller: TargetCaller): McpServer {
       method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']).describe('HTTPメソッド'),
       headers: z.record(z.string()).optional().describe('追加のリクエストヘッダー（キーと値のマップ）'),
       query: z.record(z.string()).optional().describe('URLクエリーパラメーター（キーと値のマップ）'),
-      body: z.string().optional().describe('リクエストボディ（JSON文字列またはテキスト）'),
+      body: z.string().optional().describe('リクエストボディ（JSON文字列、テキスト、またはURLエンコード文字列）'),
+      formData: z.record(z.any()).optional().describe('フォームPOST（application/x-www-form-urlencoded）用のキー・値マップ。自動的にURLエンコード形式に変換されます。'),
     },
     async (args) => {
       try {
@@ -34,6 +35,7 @@ export function createMcpServer(targetCaller: TargetCaller): McpServer {
           headers: args.headers,
           query: args.query,
           body: args.body,
+          formData: args.formData,
         });
 
         return {

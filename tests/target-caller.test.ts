@@ -109,4 +109,66 @@ describe('TargetCaller', () => {
     const names = await targetCaller.getTargetNames();
     expect(names).toEqual(['IFTTT', 'HomeServer']);
   });
+
+  it('formData パラメーターを指定した場合、application/x-www-form-urlencoded で送信される', async () => {
+    const mockFetch = vi.fn().mockResolvedValueOnce({
+      status: 200,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      text: vi.fn().mockResolvedValueOnce('{"success":true}'),
+    });
+    vi.stubGlobal('fetch', mockFetch);
+
+    const result = await targetCaller.call({
+      target: 'HomeServer',
+      path: '/api/form-endpoint',
+      method: 'POST',
+      formData: {
+        partnerId: '123',
+        status: 'approved',
+      },
+    });
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      'https://homeserver.example.com/api/form-endpoint',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({
+          'content-type': 'application/x-www-form-urlencoded',
+        }),
+        body: 'partnerId=123&status=approved',
+      })
+    );
+    expect(result.status).toBe(200);
+  });
+
+  it('Content-Type に application/x-www-form-urlencoded が指定され body に JSON 文字列が渡された場合、自動で URL エンコード形式に変換される', async () => {
+    const mockFetch = vi.fn().mockResolvedValueOnce({
+      status: 200,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      text: vi.fn().mockResolvedValueOnce('{"success":true}'),
+    });
+    vi.stubGlobal('fetch', mockFetch);
+
+    const result = await targetCaller.call({
+      target: 'HomeServer',
+      path: '/api/form-endpoint',
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: JSON.stringify({ partnerId: '456', mode: 'sync' }),
+    });
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      'https://homeserver.example.com/api/form-endpoint',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({
+          'content-type': 'application/x-www-form-urlencoded',
+        }),
+        body: 'partnerId=456&mode=sync',
+      })
+    );
+    expect(result.status).toBe(200);
+  });
 });

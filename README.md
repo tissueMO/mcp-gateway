@@ -210,7 +210,8 @@ docker compose run --rm app node scripts/verify-integration.mjs <CLIENT_ID> <CLI
   - `method` (必須, string): `GET` | `POST` | `PUT` | `PATCH` | `DELETE`
   - `headers` (任意, object): 追加リクエストヘッダー
   - `query` (任意, object): クエリーパラメーター
-  - `body` (任意, string): リクエストボディ（JSON 文字列またはテキスト）
+  - `body` (任意, string): リクエストボディ（JSON 文字列、テキスト、または URL エンコード文字列）
+  - `formData` (任意, object): フォーム POST（`application/x-www-form-urlencoded`）用のキー・値マップ。自動的に URL エンコード形式に変換されます。
 
 ---
 

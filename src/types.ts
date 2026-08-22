@@ -29,8 +29,10 @@ export interface CallApiArgs {
   headers?: Record<string, string>;
   /** クエリーパラメーター */
   query?: Record<string, string>;
-  /** リクエストボディ */
+  /** リクエストボディ（JSON文字列、テキスト、またはURLエンコード文字列） */
   body?: any;
+  /** フォームPOST（application/x-www-form-urlencoded）用のキー・値マップ */
+  formData?: Record<string, any>;
 }
 
 /**

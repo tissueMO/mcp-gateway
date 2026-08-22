@@ -46,10 +46,10 @@ export class TargetCaller {
     const url = this.buildUrl(config.baseUrl, args.path, args.query);
 
     // リクエストヘッダーの結合
-    const headers = this.buildHeaders(config.defaultHeaders, args.headers, args.body);
+    const headers = this.buildHeaders(config.defaultHeaders, args.headers, args.body, args.formData);
 
     // リクエストボディの整形
-    const body = this.buildBody(method, args.body);
+    const body = this.buildBody(method, headers['content-type'], args.body, args.formData);
 
     // HTTPリクエストの送信
     const response = await fetch(url, {
@@ -168,12 +168,14 @@ export class TargetCaller {
    * @param defaultHeaders デフォルトヘッダー
    * @param customHeaders カスタムヘッダー
    * @param body リクエストボディ
+   * @param formData フォームデータ
    * @returns マージ済みヘッダー
    */
   private buildHeaders(
     defaultHeaders?: Record<string, string>,
     customHeaders?: Record<string, string>,
-    body?: any
+    body?: any,
+    formData?: Record<string, any>
   ): Record<string, string> {
     const result: Record<string, string> = {};
 
@@ -189,8 +191,11 @@ export class TargetCaller {
       }
     }
 
-    // ボディが存在しContent-Typeが未指定の場合はapplication/jsonを設定
-    if (body !== undefined && !result['content-type']) {
+    // フォームデータが指定されている場合は application/x-www-form-urlencoded を設定
+    if (formData && !result['content-type']) {
+      result['content-type'] = 'application/x-www-form-urlencoded';
+    } else if (body !== undefined && !result['content-type']) {
+      // ボディが存在しContent-Typeが未指定の場合はapplication/jsonを設定
       result['content-type'] = 'application/json';
     }
 
@@ -198,16 +203,76 @@ export class TargetCaller {
   }
 
   /**
-   * HTTPメソッドとボディ内容からfetchに渡すボディを整形します。
+   * HTTPメソッド、Content-Type、ボディ内容からfetchに渡すボディを整形します。
    * @param method HTTPメソッド
+   * @param contentType Content-Typeヘッダー
    * @param body ボディ内容
+   * @param formData フォームデータ
    * @returns 整形済みボディ
    */
-  private buildBody(method: string, body?: any): string | undefined {
-    if (method === 'GET' || method === 'HEAD' || body === undefined || body === null) {
+  private buildBody(
+    method: string,
+    contentType?: string,
+    body?: any,
+    formData?: Record<string, any>
+  ): string | undefined {
+    if (method === 'GET' || method === 'HEAD') {
       return undefined;
     }
 
+    // 1. formData が明示的に渡された場合
+    if (formData && typeof formData === 'object') {
+      const params = new URLSearchParams();
+      for (const [k, v] of Object.entries(formData)) {
+        if (v !== undefined && v !== null) {
+          params.append(k, typeof v === 'object' ? JSON.stringify(v) : String(v));
+        }
+      }
+      return params.toString();
+    }
+
+    if (body === undefined || body === null) {
+      return undefined;
+    }
+
+    const isFormUrlEncoded = contentType?.includes('application/x-www-form-urlencoded');
+
+    // 2. Content-Type が application/x-www-form-urlencoded の場合
+    if (isFormUrlEncoded) {
+      if (typeof body === 'object') {
+        const params = new URLSearchParams();
+        for (const [k, v] of Object.entries(body)) {
+          if (v !== undefined && v !== null) {
+            params.append(k, typeof v === 'object' ? JSON.stringify(v) : String(v));
+          }
+        }
+        return params.toString();
+      }
+
+      if (typeof body === 'string') {
+        const trimmed = body.trim();
+        // JSON文字列として渡された場合はパースしてURLSearchParamsに変換
+        if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+          try {
+            const parsed = JSON.parse(trimmed);
+            if (typeof parsed === 'object' && parsed !== null) {
+              const params = new URLSearchParams();
+              for (const [k, v] of Object.entries(parsed)) {
+                if (v !== undefined && v !== null) {
+                  params.append(k, typeof v === 'object' ? JSON.stringify(v) : String(v));
+                }
+              }
+              return params.toString();
+            }
+          } catch {
+            // パース失敗時はそのまま扱う
+          }
+        }
+        return body;
+      }
+    }
+
+    // 3. 通常のJSONまたはテキスト
     if (typeof body === 'string') {
       return body;
     }
