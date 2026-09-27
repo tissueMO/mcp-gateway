@@ -27,6 +27,8 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
   const method = event.requestContext?.http?.method?.toUpperCase() || 'GET';
   const path = event.rawPath || '/';
 
+  console.log(`[HTTP REQ] ${method} ${path} User-Agent="${event.headers?.['user-agent'] || ''}"`);
+
   let response: APIGatewayProxyResultV2;
 
   // CORSプリフライトリクエストの処理
@@ -48,7 +50,7 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
       isBase64Encoded: true,
       body: ICON_PNG_BASE64,
     };
-  } else if (path.startsWith('/.well-known/')) {
+  } else if (path.startsWith('/.well-known/') || path.startsWith('/mcp/.well-known/')) {
     // OAuth / MCP Discovery エンドポイントのルーティング
     const env: AppEnvironment = {
       COGNITO_USER_POOL_ID: process.env.COGNITO_USER_POOL_ID,
@@ -57,7 +59,26 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
       CUSTOM_DOMAIN: process.env.CUSTOM_DOMAIN || (event.headers && (event.headers['host'] || event.headers['Host'])) || 'mcp.example.com',
     };
     response = handleDiscoveryRequest(path, env);
-  } else if (path === '/mcp' || path === '/mcp/') {
+  } else if ((path === '/' || path === '') && method === 'GET') {
+    // ルートパスへの GET リクエスト (ヘルスチェック・ステータス情報)
+    response = {
+      statusCode: 200,
+      headers: {
+        'content-type': 'application/json',
+        ...CORS_HEADERS,
+      },
+      body: JSON.stringify({
+        status: 'ok',
+        name: 'mcp-gateway',
+        version: '1.0.0',
+        protocol: 'mcp',
+        endpoints: {
+          mcp: '/mcp',
+          discovery: '/.well-known/oauth-authorization-server',
+        },
+      }),
+    };
+  } else if (path === '/mcp' || path === '/mcp/' || path === '/' || path === '') {
     // MCP エンドポイントのルーティング
     try {
       let body: any = {};
@@ -65,7 +86,9 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
         const rawBody = event.isBase64Encoded
           ? Buffer.from(event.body, 'base64').toString('utf-8')
           : event.body;
-        body = JSON.parse(rawBody);
+        if (rawBody.trim()) {
+          body = JSON.parse(rawBody);
+        }
       }
 
       // 運用ログ: MCP メソッドの記録
@@ -117,5 +140,6 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
     };
   }
 
+  console.log(`[HTTP RES] ${method} ${path} -> ${response.statusCode}`);
   return response;
 }

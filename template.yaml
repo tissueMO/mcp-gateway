@@ -16,6 +16,10 @@ Parameters:
   ClientCallbackUrl:
     Type: String
     Description: OAuth 2.0 Callback URL for the Cognito App Client (e.g. Gemini Spark Redirect URI)
+  ChatGptCallbackUrl:
+    Type: String
+    Default: 'https://chatgpt.com/connector/oauth/3dzkaNbiRyuI'
+    Description: OAuth 2.0 Callback URL for the ChatGPT Cognito App Client
   DomainName:
     Type: String
     Description: Custom domain name for the MCP Gateway (e.g. mcp.example.com)
@@ -48,7 +52,7 @@ Resources:
         - ScopeName: 'mcp.access'
           ScopeDescription: 'Access MCP Gateway'
 
-  CognitoUserPoolClient:
+  CognitoUserPoolClientGemini:
     Type: AWS::Cognito::UserPoolClient
     DependsOn: CognitoUserPoolResourceServer
     Properties:
@@ -65,6 +69,26 @@ Resources:
         - !Sub 'https://${DomainName}/mcp.access'
       CallbackURLs:
         - !Ref ClientCallbackUrl
+      SupportedIdentityProviders:
+        - COGNITO
+
+  CognitoUserPoolClientChatGpt:
+    Type: AWS::Cognito::UserPoolClient
+    DependsOn: CognitoUserPoolResourceServer
+    Properties:
+      ClientName: chatgpt-mcp
+      UserPoolId: !Ref UserPoolId
+      GenerateSecret: true
+      AllowedOAuthFlowsUserPoolClient: true
+      AllowedOAuthFlows:
+        - code
+      AllowedOAuthScopes:
+        - openid
+        - email
+        - profile
+        - !Sub 'https://${DomainName}/mcp.access'
+      CallbackURLs:
+        - !Ref ChatGptCallbackUrl
       SupportedIdentityProviders:
         - COGNITO
 
@@ -100,7 +124,8 @@ Resources:
             JwtConfiguration:
               issuer: !Sub 'https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPoolId}'
               audience:
-                - !Ref CognitoUserPoolClient
+                - !Ref CognitoUserPoolClientGemini
+                - !Ref CognitoUserPoolClientChatGpt
 
   # =================================================================
   # Lambda 関数 (MCP Gateway)
@@ -124,6 +149,15 @@ Resources:
                 - ssm:GetParameters
               Resource: !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter${TargetsParameterName}*'
       Events:
+        # ルートエンドポイント (Public: プローブ・ヘルスチェック用)
+        RootRoute:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /
+            Method: ANY
+            Auth:
+              Authorizer: NONE
         # MCP 認証保護エンドポイント (DefaultAuthorizerが適用される)
         McpRoute:
           Type: HttpApi
@@ -147,6 +181,31 @@ Resources:
             ApiId: !Ref HttpApi
             Path: /.well-known/{proxy+}
             Method: GET
+            Auth:
+              Authorizer: NONE
+        DiscoveryOptionsRoute:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /.well-known/{proxy+}
+            Method: OPTIONS
+            Auth:
+              Authorizer: NONE
+        # /mcp 配下の OAuth Discovery エンドポイント (Public)
+        McpDiscoveryRoute:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /mcp/.well-known/{proxy+}
+            Method: GET
+            Auth:
+              Authorizer: NONE
+        McpDiscoveryOptionsRoute:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /mcp/.well-known/{proxy+}
+            Method: OPTIONS
             Auth:
               Authorizer: NONE
         # アイコン・公開アセット (Public)
@@ -193,9 +252,13 @@ Outputs:
     Description: Cognito User Pool ID
     Value: !Ref UserPoolId
 
-  ClientId:
-    Description: Cognito App Client ID
-    Value: !Ref CognitoUserPoolClient
+  GeminiClientId:
+    Description: Cognito App Client ID (Gemini Spark)
+    Value: !Ref CognitoUserPoolClientGemini
+
+  ChatGptClientId:
+    Description: Cognito App Client ID (ChatGPT)
+    Value: !Ref CognitoUserPoolClientChatGpt
 
   DiscoveryUrl:
     Description: OAuth Authorization Server Metadata URL

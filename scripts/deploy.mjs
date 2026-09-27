@@ -42,7 +42,9 @@ async function main() {
     process.exit(1);
   }
 
-  const overrides = [
+  const chatGptCallbackUrl = process.env.CHATGPT_CALLBACK_URL;
+
+  const overrideList = [
     `UserPoolId="${userPoolId}"`,
     `UserPoolDomain="${userPoolDomain}"`,
     `ClientCallbackUrl="${clientCallbackUrl}"`,
@@ -50,7 +52,13 @@ async function main() {
     `DomainName="${domainName}"`,
     `HostedZoneId="${hostedZoneId}"`,
     `CertificateArn="${certificateArn}"`,
-  ].join(' ');
+  ];
+
+  if (chatGptCallbackUrl) {
+    overrideList.push(`ChatGptCallbackUrl="${chatGptCallbackUrl}"`);
+  }
+
+  const overrides = overrideList.join(' ');
 
   const s3Bucket = process.env.SAM_S3_BUCKET ? `--s3-bucket ${process.env.SAM_S3_BUCKET}` : '--resolve-s3';
   const deployCmd = `sam deploy ${s3Bucket} --parameter-overrides ${overrides}`;
