@@ -33,6 +33,7 @@ export function handleDiscoveryRequest(path: string, env: AppEnvironment): Disco
       response_types_supported: ['code', 'token'],
       grant_types_supported: ['authorization_code', 'client_credentials', 'refresh_token'],
       token_endpoint_auth_methods_supported: ['client_secret_basic', 'client_secret_post', 'none'],
+      code_challenge_methods_supported: ['S256'],
       scopes_supported: ['openid', 'email', 'profile', customScope],
       logo_uri: `https://${customDomain}/icon.png`,
       op_logo_uri: `https://${customDomain}/icon.png`,

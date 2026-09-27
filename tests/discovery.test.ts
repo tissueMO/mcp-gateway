@@ -18,6 +18,13 @@ describe('DiscoveryHandler', () => {
     expect(body.scopes_supported).toContain(`https://${env.CUSTOM_DOMAIN}/mcp.access`);
   });
 
+  it('GET /.well-known/oauth-authorization-server で code_challenge_methods_supported に S256 を設定した認可サーバーメタデータを返す', () => {
+    const result = handleDiscoveryRequest('/.well-known/oauth-authorization-server', env);
+    expect(result.statusCode).toBe(200);
+    const body = JSON.parse(result.body);
+    expect(body.code_challenge_methods_supported).toEqual(['S256']);
+  });
+
   it('GET /.well-known/oauth-protected-resource でリソースサーバーメタデータを返す', () => {
     const result = handleDiscoveryRequest('/.well-known/oauth-protected-resource', env);
     expect(result.statusCode).toBe(200);
